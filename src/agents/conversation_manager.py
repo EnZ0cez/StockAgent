@@ -4,9 +4,9 @@ from datetime import datetime
 import json
 import re
 
-from .coordinator import StockAnalysisCoordinator
-from ..config import settings
-from ..utils.llm import get_llm
+from src.agents.coordinator import StockAnalysisCoordinator
+from src.config import settings
+from src.utils.llm import get_llm
 
 class ConversationManager:
     """Manages multi-turn conversations with the stock analysis agent"""
@@ -433,7 +433,7 @@ class ConversationManager:
             for symbol in symbols:
                 # Get quick comparison data for each symbol
                 try:
-                    from ..agents.stock_data_agent import StockDataAgent
+                    from src.agents.stock_data_agent import StockDataAgent
                     stock_agent = StockDataAgent(self.llm)
                     stock_data = stock_agent.get_stock_data(symbol, period="1y")
                     

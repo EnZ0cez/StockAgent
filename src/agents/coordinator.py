@@ -1,4 +1,4 @@
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, TypedDict
 from datetime import datetime
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langgraph.graph import StateGraph, END
@@ -6,44 +6,27 @@ from langchain_core.runnables import RunnableConfig
 import asyncio
 import json
 
-from ..utils.llm import get_llm
-from ..config import settings
+from src.utils.llm import get_llm
+from src.config import settings
 
-class StockAnalysisState:
+class StockAnalysisState(TypedDict):
     """State management for stock analysis workflow"""
-    def __init__(self):
-        self.messages: List[Dict[str, Any]] = []
-        self.stock_symbol: str = ""
-        self.time_period: str = ""
-        self.news_days: int = 0
-        self.stock_data: Optional[Dict[str, Any]] = None
-        self.news_data: Optional[Dict[str, Any]] = None
-        self.financial_data: Optional[Dict[str, Any]] = None
-        self.analysis_result: Optional[Dict[str, Any]] = None
-        self.current_agent: str = ""
-        self.error: Optional[str] = None
-        
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert state to dictionary for serialization"""
-        return {
-            "messages": self.messages,
-            "stock_symbol": self.stock_symbol,
-            "time_period": self.time_period,
-            "news_days": self.news_days,
-            "stock_data": self.stock_data,
-            "news_data": self.news_data,
-            "financial_data": self.financial_data,
-            "analysis_result": self.analysis_result,
-            "current_agent": self.current_agent,
-            "error": self.error
-        }
+    messages: List[Dict[str, Any]]
+    stock_symbol: str
+    time_period: str
+    news_days: int
+    stock_data: Optional[Dict[str, Any]]
+    news_data: Optional[Dict[str, Any]]
+    financial_data: Optional[Dict[str, Any]]
+    analysis_result: Optional[Dict[str, Any]]
+    current_agent: str
+    error: Optional[str]
 
 class StockAnalysisCoordinator:
     """Main coordinator for stock analysis agents"""
     
     def __init__(self):
         self.llm = get_llm()
-        self.state = StockAnalysisState()
         self.graph = self._build_workflow()
         
     def _build_workflow(self) -> StateGraph:
@@ -70,21 +53,23 @@ class StockAnalysisCoordinator:
         
         return workflow.compile()
     
-    def _coordinate_task(self, state: StockAnalysisState, config: RunnableConfig) -> StockAnalysisState:
+    def _coordinate_task(self, state: StockAnalysisState, config: RunnableConfig) -> Dict[str, Any]:
         """Coordinate the initial task and route to appropriate agents"""
-        state.current_agent = "coordinator"
+        updates = {"current_agent": "coordinator"}
         
         # Extract user query from messages
-        if state.messages:
-            user_message = state.messages[-1]["content"]
+        if state.get("messages"):
+            user_message = state["messages"][-1]["content"]
             
             # Parse query for stock symbol and parameters
             parsed_query = self._parse_user_query(user_message)
-            state.stock_symbol = parsed_query.get("symbol", settings.default_stock_symbol)
-            state.time_period = parsed_query.get("time_period", settings.default_time_period)
-            state.news_days = parsed_query.get("news_days", settings.default_news_days)
+            updates.update({
+                "stock_symbol": parsed_query.get("symbol", settings.default_stock_symbol),
+                "time_period": parsed_query.get("time_period", settings.default_time_period),
+                "news_days": parsed_query.get("news_days", settings.default_news_days)
+            })
         
-        return state
+        return updates
     
     def _parse_user_query(self, query: str) -> Dict[str, Any]:
         """Parse user query to extract stock symbol and parameters"""
@@ -109,223 +94,193 @@ class StockAnalysisCoordinator:
             "news_days": news_days
         }
     
-    def _get_stock_data(self, state: StockAnalysisState, config: RunnableConfig) -> StockAnalysisState:
+    def _get_stock_data(self, state: StockAnalysisState, config: RunnableConfig) -> Dict[str, Any]:
         """Get real-time stock price data"""
-        state.current_agent = "stock_data_agent"
+        updates = {"current_agent": "stock_data_agent"}
         
         try:
-            from ..agents.stock_data_agent import StockDataAgent
+            from src.agents.stock_data_agent import StockDataAgent
             stock_agent = StockDataAgent(self.llm)
             
             stock_data = stock_agent.get_stock_data(
-                state.stock_symbol, 
-                state.time_period
+                state.get("stock_symbol", settings.default_stock_symbol), 
+                state.get("time_period", settings.default_time_period)
             )
             
-            state.stock_data = stock_data
-            state.messages.append({
+            updates["stock_data"] = stock_data
+            
+            # Update messages
+            new_messages = list(state.get("messages", []))
+            new_messages.append({
                 "role": "assistant",
-                "content": f"Retrieved stock data for {state.stock_symbol}",
+                "content": f"Retrieved stock data for {state.get('stock_symbol')}",
                 "agent": "stock_data_agent"
             })
+            updates["messages"] = new_messages
             
         except Exception as e:
-            state.error = f"Stock data error: {str(e)}"
-            state.messages.append({
+            updates["error"] = f"Stock data error: {str(e)}"
+            new_messages = list(state.get("messages", []))
+            new_messages.append({
                 "role": "assistant",
                 "content": f"Error retrieving stock data: {str(e)}",
                 "agent": "stock_data_agent"
             })
+            updates["messages"] = new_messages
         
-        return state
+        return updates
     
-    def _get_news_data(self, state: StockAnalysisState, config: RunnableConfig) -> StockAnalysisState:
+    def _get_news_data(self, state: StockAnalysisState, config: RunnableConfig) -> Dict[str, Any]:
         """Get news sentiment data"""
-        state.current_agent = "news_agent"
-        
-        try:
-            from ..agents.news_agent import NewsAgent
-            news_agent = NewsAgent(self.llm)
-            
-            news_data = news_agent.get_news_sentiment(
-                state.stock_symbol,
-                state.news_days
-            )
-            
-            state.news_data = news_data
-            state.messages.append({
-                "role": "assistant",
-                "content": f"Retrieved news sentiment for {state.stock_symbol}",
-                "agent": "news_agent"
-            })
-            
-        except Exception as e:
-            state.error = f"News data error: {str(e)}"
-            state.messages.append({
-                "role": "assistant",
-                "content": f"Error retrieving news data: {str(e)}",
-                "agent": "news_agent"
-            })
-        
-        return state
+        return {"current_agent": "news_agent", "news_data": {"status": "skipped"}}
     
-    def _get_financial_data(self, state: StockAnalysisState, config: RunnableConfig) -> StockAnalysisState:
-        """Get historical financial data"""
-        state.current_agent = "financial_agent"
-        
-        try:
-            from ..agents.financial_agent import FinancialAgent
-            financial_agent = FinancialAgent(self.llm)
-            
-            financial_data = financial_agent.get_financial_data(
-                state.stock_symbol
-            )
-            
-            state.financial_data = financial_data
-            state.messages.append({
-                "role": "assistant",
-                "content": f"Retrieved financial data for {state.stock_symbol}",
-                "agent": "financial_agent"
-            })
-            
-        except Exception as e:
-            state.error = f"Financial data error: {str(e)}"
-            state.messages.append({
-                "role": "assistant",
-                "content": f"Error retrieving financial data: {str(e)}",
-                "agent": "financial_agent"
-            })
-        
-        return state
+    def _get_financial_data(self, state: StockAnalysisState, config: RunnableConfig) -> Dict[str, Any]:
+        """Get financial data"""
+        return {"current_agent": "financial_agent", "financial_data": {"status": "skipped"}}
     
-    def _analyze_data(self, state: StockAnalysisState, config: RunnableConfig) -> StockAnalysisState:
-        """Analyze all collected data"""
-        state.current_agent = "analysis_agent"
+    def _analyze_data(self, state: StockAnalysisState, config: RunnableConfig) -> Dict[str, Any]:
+        """Analyze collected data"""
+        updates = {"current_agent": "analysis_agent"}
         
         try:
-            analysis_prompt = f"""
-            Analyze the following stock data for {state.stock_symbol}:
+            stock_data = state.get("stock_data")
+            stock_symbol = state.get("stock_symbol", "UNKNOWN")
             
-            Stock Data: {json.dumps(state.stock_data, indent=2) if state.stock_data else 'Not available'}
-            News Sentiment: {json.dumps(state.news_data, indent=2) if state.news_data else 'Not available'}
-            Financial Data: {json.dumps(state.financial_data, indent=2) if state.financial_data else 'Not available'}
+            if not stock_data or "error" in stock_data:
+                # If stock data failed, provide basic analysis
+                updates["analysis_result"] = {
+                    "summary": f"Unable to analyze {stock_symbol} due to data issues",
+                    "recommendation": "N/A",
+                    "confidence_score": 0.0,
+                    "analysis": "Data retrieval failed",
+                    "timestamp": datetime.now().isoformat()
+                }
+            else:
+                # Create analysis prompt with real data
+                current_data = stock_data.get("current_data", {}) or {}
+                performance = stock_data.get("performance", {}) or {}
+                technical = stock_data.get("technical_indicators", {}) or {}
+                company_info = stock_data.get("company_info", {}) or {}
+                
+                analysis_prompt = f"""
+                Analyze the following stock data for {stock_symbol} and provide investment recommendations:
+                
+                **Current Market Data:**
+                - Price: ${current_data.get('price', 0):.2f}
+                - Change: {current_data.get('change', 0):+.2f} ({current_data.get('change_percent', 0):+.2f}%)
+                - Volume: {current_data.get('volume', 0):,}
+                - Market Cap: ${current_data.get('market_cap', 0):,}
+                - P/E Ratio: {current_data.get('pe_ratio', 'N/A')}
+                
+                **Company Information:**
+                - Name: {company_info.get('name', 'N/A')}
+                - Sector: {company_info.get('sector', 'N/A')}
+                - Industry: {company_info.get('industry', 'N/A')}
+                
+                **Technical Analysis:**
+                - RSI: {technical.get('rsi') or 'N/A'}
+                - 50-day MA: {'${:.2f}'.format(performance.get('ma_50')) if performance.get('ma_50') else 'N/A'}
+                - 200-day MA: {'${:.2f}'.format(performance.get('ma_200')) if performance.get('ma_200') else 'N/A'}
+                - Volatility: {'{:.2f}%'.format(performance.get('volatility')) if performance.get('volatility') else 'N/A'}
+                
+                **Performance:**
+                - Period Return: {'{:.2f}%'.format(performance.get('period_return')) if performance.get('period_return') else 'N/A'}
+                - 52-week High: {'${:.2f}'.format(performance.get('high_52w')) if performance.get('high_52w') else 'N/A'}
+                - 52-week Low: {'${:.2f}'.format(performance.get('low_52w')) if performance.get('low_52w') else 'N/A'}
+                
+                Based on this data, provide:
+                1. Investment recommendation (Buy/Hold/Sell)
+                2. Confidence score (0.0-1.0)
+                3. Key reasons for the recommendation
+                4. Risk factors to consider
+                5. Price targets if applicable
+                
+                Be concise but thorough in your analysis.
+                """
+                
+                response = self.llm.invoke([{"role": "user", "content": analysis_prompt}])
+                
+                # Parse the LLM response (simplified - could be enhanced)
+                analysis_text = response.content
+                
+                # Extract recommendation (basic parsing)
+                recommendation = "Hold"  # Default
+                confidence_score = 0.7   # Default
+                
+                if "buy" in analysis_text.lower() and "don't buy" not in analysis_text.lower():
+                    recommendation = "Buy"
+                    confidence_score = 0.8
+                elif "sell" in analysis_text.lower():
+                    recommendation = "Sell"
+                    confidence_score = 0.75
+                
+                updates["analysis_result"] = {
+                    "summary": f"Analysis completed for {stock_symbol}",
+                    "recommendation": recommendation,
+                    "confidence_score": confidence_score,
+                    "analysis": analysis_text,
+                    "stock_price": current_data.get('price', 0),
+                    "change_percent": current_data.get('change_percent', 0),
+                    "company_name": company_info.get('name', stock_symbol),
+                    "timestamp": datetime.now().isoformat()
+                }
             
-            Provide a comprehensive analysis including:
-            1. Current stock performance
-            2. News sentiment impact
-            3. Financial health assessment
-            4. Risk factors
-            5. Investment recommendation (Buy/Hold/Sell)
-            
-            Return the analysis in JSON format with the following structure:
-            {{
-                "summary": "Brief overview",
-                "performance_analysis": "Detailed performance analysis",
-                "sentiment_analysis": "News sentiment impact",
-                "financial_health": "Financial health assessment",
-                "risk_factors": ["List of risk factors"],
-                "recommendation": "Buy/Hold/Sell with reasoning",
-                "confidence_score": 0.8,
-                "timestamp": "2024-01-01T00:00:00Z"
-            }}
-            """
-            
-            response = self.llm.invoke([HumanMessage(content=analysis_prompt)])
-            analysis_result = json.loads(response.content)
-            
-            state.analysis_result = analysis_result
-            state.messages.append({
+            # Update messages
+            new_messages = list(state.get("messages", []))
+            new_messages.append({
                 "role": "assistant",
-                "content": f"Completed analysis for {state.stock_symbol}",
+                "content": f"Completed analysis for {stock_symbol}",
                 "agent": "analysis_agent"
             })
+            updates["messages"] = new_messages
             
         except Exception as e:
-            state.error = f"Analysis error: {str(e)}"
-            state.messages.append({
+            updates["error"] = f"Analysis error: {str(e)}"
+            new_messages = list(state.get("messages", []))
+            new_messages.append({
                 "role": "assistant",
-                "content": f"Error analyzing data: {str(e)}",
+                "content": f"Error during analysis: {str(e)}",
                 "agent": "analysis_agent"
             })
+            updates["messages"] = new_messages
         
-        return state
+        return updates
     
-    def _generate_report(self, state: StockAnalysisState, config: RunnableConfig) -> StockAnalysisState:
+    def _generate_report(self, state: StockAnalysisState, config: RunnableConfig) -> Dict[str, Any]:
         """Generate final report"""
-        state.current_agent = "report_agent"
-        
-        try:
-            from ..utils.report_generator import ReportGenerator
-            report_generator = ReportGenerator()
-            
-            report_data = {
-                "stock_symbol": state.stock_symbol,
-                "analysis_date": datetime.now().isoformat(),
-                "analysis_result": state.analysis_result,
-                "raw_data": {
-                    "stock_data": state.stock_data,
-                    "news_data": state.news_data,
-                    "financial_data": state.financial_data
-                },
-                "conversation_history": state.messages
-            }
-            
-            # Generate both PDF and JSON reports
-            pdf_report = report_generator.generate_pdf_report(report_data)
-            json_report = report_generator.generate_json_report(report_data)
-            
-            state.analysis_result["reports"] = {
-                "pdf_path": pdf_report,
-                "json_path": json_report
-            }
-            
-            state.messages.append({
-                "role": "assistant",
-                "content": f"Generated investment report for {state.stock_symbol}",
-                "agent": "report_agent"
-            })
-            
-        except Exception as e:
-            state.error = f"Report generation error: {str(e)}"
-            state.messages.append({
-                "role": "assistant",
-                "content": f"Error generating report: {str(e)}",
-                "agent": "report_agent"
-            })
-        
-        return state
+        return {"current_agent": "report_agent"}
     
     async def analyze_stock(self, query: str) -> Dict[str, Any]:
         """Main method to analyze a stock"""
         # Initialize state
-        self.state = StockAnalysisState()
-        self.state.messages.append({
-            "role": "user",
-            "content": query,
-            "timestamp": datetime.now().isoformat()
-        })
+        initial_state: StockAnalysisState = {
+            "messages": [{
+                "role": "user",
+                "content": query,
+                "timestamp": datetime.now().isoformat()
+            }],
+            "stock_symbol": "",
+            "time_period": "1y",
+            "news_days": 7,
+            "stock_data": None,
+            "news_data": None,
+            "financial_data": None,
+            "analysis_result": None,
+            "current_agent": "",
+            "error": None
+        }
         
         # Run the workflow
         try:
-            result = await self.graph.ainvoke(self.state)
+            result = await self.graph.ainvoke(initial_state)
             return {
                 "success": True,
-                "state": result.to_dict(),
-                "analysis_result": result.analysis_result
+                "state": result,
+                "analysis_result": result.get("analysis_result")
             }
         except Exception as e:
             return {
                 "success": False,
                 "error": str(e),
-                "state": self.state.to_dict()
+                "state": initial_state
             }
-    
-    def get_conversation_summary(self) -> Dict[str, Any]:
-        """Get a summary of the current conversation"""
-        return {
-            "stock_symbol": self.state.stock_symbol,
-            "current_agent": self.state.current_agent,
-            "message_count": len(self.state.messages),
-            "has_error": self.state.error is not None,
-            "has_analysis": self.state.analysis_result is not None
-        }

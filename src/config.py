@@ -1,18 +1,19 @@
 import os
 from typing import Optional
-from pydantic import BaseSettings
+from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     # API Keys
-    deepseek_api_key: str
+    qwen_api_key: str
     tavily_api_key: str
+    alpha_vantage_api_key: str  # Alpha Vantage API key (required)
     financial_datasets_api_key: Optional[str] = None
     
     # LLM Configuration
-    deepseek_model: str = "deepseek-chat"
-    deepseek_base_url: str = "https://api.deepseek.com"
-    deepseek_temperature: float = 0.1
-    deepseek_max_tokens: int = 4000
+    qwen_model: str = "qwen-turbo"
+    qwen_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    qwen_temperature: float = 0.1
+    qwen_max_tokens: int = 4000
     
     # Agent Configuration
     max_agent_iterations: int = 10
@@ -31,7 +32,7 @@ settings = Settings()
 
 def validate_settings():
     """Validate that required settings are present"""
-    required_keys = ["deepseek_api_key", "tavily_api_key"]
+    required_keys = ["qwen_api_key", "tavily_api_key"]
     missing_keys = []
     
     for key in required_keys:

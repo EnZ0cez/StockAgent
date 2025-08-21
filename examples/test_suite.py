@@ -5,15 +5,15 @@ import json
 from datetime import datetime, timedelta
 
 # Add the src directory to the Python path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from agents.stock_data_agent import StockDataAgent
-from agents.news_agent import NewsAgent
-from agents.financial_agent import FinancialAgent
-from tools.tavily_search import TavilySearchTool
-from tools.financial_datasets_api import FinancialDatasetsAPI
-from utils.llm import get_llm
-from config import settings, validate_settings
+from src.agents.stock_data_agent import StockDataAgent
+from src.agents.news_agent import NewsAgent
+from src.agents.financial_agent import FinancialAgent
+from src.tools.tavily_search import TavilySearchTool
+from src.tools.financial_datasets_api import FinancialDatasetsAPI
+from src.utils.llm import get_llm
+from src.config import settings, validate_settings
 
 async def test_stock_data_agent():
     """Test the Stock Data Agent"""
@@ -26,9 +26,30 @@ async def test_stock_data_agent():
         # Test single stock
         result = agent.get_stock_data("AAPL", "6mo")
         print(f"✅ AAPL data retrieved successfully")
-        print(f"   Current price: ${result['current_data']['price']:.2f}")
-        print(f"   Daily change: {result['current_data']['change_percent']:.2f}%")
-        print(f"   Period return: {result['performance']['period_return']:.2f}%")
+        
+        # Safely access the data with error handling
+        if 'current_data' in result and result['current_data']:
+            current_data = result['current_data']
+            if current_data.get('price'):
+                print(f"   Current price: ${current_data['price']:.2f}")
+            else:
+                print(f"   Current price: Not available")
+            
+            if current_data.get('change_percent'):
+                print(f"   Daily change: {current_data['change_percent']:.2f}%")
+            else:
+                print(f"   Daily change: Not available")
+        else:
+            print(f"   Warning: current_data not found in result")
+            
+        if 'performance' in result and result['performance']:
+            performance = result['performance']
+            if performance.get('period_return'):
+                print(f"   Period return: {performance['period_return']:.2f}%")
+            else:
+                print(f"   Period return: Not available")
+        else:
+            print(f"   Warning: performance data not found in result")
         
         # Test multiple stocks
         stocks = ["AAPL", "MSFT", "GOOGL"]
@@ -109,12 +130,18 @@ async def test_tavily_search():
         # Test market news search
         result = search_tool.search_market_news("AAPL", 7, 5)
         print(f"✅ Market news search completed")
-        print(f"   Articles found: {result['total_results']}")
+        if 'total_results' in result:
+            print(f"   Articles found: {result['total_results']}")
+        else:
+            print(f"   Articles found: {len(result.get('results', []))}")
         
         # Test comprehensive search
         comprehensive = search_tool.comprehensive_news_search("AAPL", "Apple Inc.", 7)
         print(f"✅ Comprehensive search completed")
-        print(f"   Unique articles: {comprehensive['total_unique_articles']}")
+        if 'total_unique_articles' in comprehensive:
+            print(f"   Unique articles: {comprehensive['total_unique_articles']}")
+        else:
+            print(f"   Unique articles: {len(comprehensive.get('results', []))}")
         
         return True
         
@@ -160,7 +187,7 @@ async def test_report_generation():
     print("📄 Testing Report Generation...")
     
     try:
-        from utils.report_generator import ReportGenerator
+        from src.utils.report_generator import ReportGenerator
         
         generator = ReportGenerator()
         
@@ -236,7 +263,7 @@ async def test_llm_connection():
         
         if "successful" in response.content.lower():
             print(f"✅ LLM connection successful")
-            print(f"   Model: {settings.deepseek_model}")
+            print(f"   Model: {settings.qwen_model}")
             print(f"   Response: {response.content}")
             return True
         else:

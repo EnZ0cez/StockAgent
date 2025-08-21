@@ -3,11 +3,11 @@ import os
 import sys
 from datetime import datetime
 
-# Add the src directory to the Python path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+# Add the project root directory to the Python path
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from agents.conversation_manager import ConversationManager
-from config import settings, validate_settings
+from src.agents.conversation_manager import ConversationManager
+from src.config import settings, validate_settings
 
 async def interactive_mode():
     """Interactive mode for real-time conversation"""

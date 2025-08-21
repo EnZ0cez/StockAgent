@@ -1,7 +1,7 @@
 import json
 import os
 from datetime import datetime
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from reportlab.lib.pagesizes import letter, A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
@@ -31,7 +31,7 @@ class ReportGenerator:
             "warning": HexColor("#ff7f0e"),
             "info": HexColor("#17a2b8"),
             "light": HexColor("#f8f9fa"),
-            "dark": HexColor("#343a40"
+            "dark": HexColor("#343a40")
         }
     
     def generate_pdf_report(self, data: Dict[str, Any]) -> str:
